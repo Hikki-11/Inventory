@@ -322,7 +322,8 @@ console.log('\n▶️ Test 6: Role filtering (Admin vs Inventory Manager vs Bill
     destWarehouseId: 'wh-2',
     date: '2026-05-10',
     status: 'transit',
-    trackingNumber: 'TRK-999'
+    trackingNumber: 'TRK-999',
+    carrier: 'BlueDart Express'
   };
 
   // Admin
