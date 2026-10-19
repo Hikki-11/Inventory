@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   LayoutDashboard, 
   Package, 
@@ -122,6 +122,16 @@ import BulkImportModal from './components/BulkImportModal';
 import { DuplicatePolicy } from './utils/bulkImport';
 import BatchImportModal from './components/BatchImportModal';
 import { BatchDuplicatePolicy } from './utils/batchImport';
+import { NotificationCenterPanel } from './components/NotificationCenterPanel';
+import { NotificationSettingsModal } from './components/NotificationSettingsModal';
+import {
+  NotificationSettings,
+  DEFAULT_NOTIFICATION_SETTINGS,
+  UserNotificationState,
+  INITIAL_USER_NOTIFICATION_STATE,
+  generateNotifications,
+  AppNotification
+} from './utils/notificationCenter';
 
 const INITIAL_BATCHES: Batch[] = [
   {
@@ -392,6 +402,108 @@ export default function App() {
   const currentUser = useMemo(() => {
     return staff.find(s => s.id === currentStaffId) || staff[0];
   }, [staff, currentStaffId]);
+
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
+  const [isNotificationSettingsOpen, setIsNotificationSettingsOpen] = useState(false);
+  const [userNotificationStates, setUserNotificationStates] = useState<Record<string, UserNotificationState>>({});
+  const [preloadedPOItem, setPreloadedPOItem] = useState<{ itemId: string; quantity: number } | null>(null);
+
+  const currentUserNotifState = userNotificationStates[currentUser.id] || INITIAL_USER_NOTIFICATION_STATE;
+
+  const { notifications } = useMemo(() => {
+    return generateNotifications({
+      inventory,
+      batches,
+      purchaseOrders,
+      invoices,
+      transfers,
+      warehouses,
+      role: currentUser.role,
+      settings: notificationSettings,
+      userState: currentUserNotifState
+    });
+  }, [inventory, batches, purchaseOrders, invoices, transfers, warehouses, currentUser.role, notificationSettings, currentUserNotifState]);
+
+  const handleUpdateUserState = (nextState: UserNotificationState) => {
+    setUserNotificationStates(prev => ({
+      ...prev,
+      [currentUser.id]: nextState
+    }));
+  };
+
+  const handleSaveNotificationSettings = (newSettings: NotificationSettings) => {
+    const old = notificationSettings;
+    setNotificationSettings(newSettings);
+
+    const changes: string[] = [];
+    if (old.nearExpiryDays !== newSettings.nearExpiryDays) {
+      changes.push(`nearExpiryDays: ${old.nearExpiryDays} -> ${newSettings.nearExpiryDays}`);
+    }
+    if (old.criticalExpiryDays !== newSettings.criticalExpiryDays) {
+      changes.push(`criticalExpiryDays: ${old.criticalExpiryDays} -> ${newSettings.criticalExpiryDays}`);
+    }
+    if (old.stuckTransferDays !== newSettings.stuckTransferDays) {
+      changes.push(`stuckTransferDays: ${old.stuckTransferDays} -> ${newSettings.stuckTransferDays}`);
+    }
+    if (old.enableLowStock !== newSettings.enableLowStock) {
+      changes.push(`enableLowStock: ${old.enableLowStock} -> ${newSettings.enableLowStock}`);
+    }
+    if (old.enableOutOfStock !== newSettings.enableOutOfStock) {
+      changes.push(`enableOutOfStock: ${old.enableOutOfStock} -> ${newSettings.enableOutOfStock}`);
+    }
+    if (old.enableExpiredBatch !== newSettings.enableExpiredBatch) {
+      changes.push(`enableExpiredBatch: ${old.enableExpiredBatch} -> ${newSettings.enableExpiredBatch}`);
+    }
+    if (old.enableExpiringSoon !== newSettings.enableExpiringSoon) {
+      changes.push(`enableExpiringSoon: ${old.enableExpiringSoon} -> ${newSettings.enableExpiringSoon}`);
+    }
+    if (old.enableOverdueInvoice !== newSettings.enableOverdueInvoice) {
+      changes.push(`enableOverdueInvoice: ${old.enableOverdueInvoice} -> ${newSettings.enableOverdueInvoice}`);
+    }
+    if (old.enableStuckTransfer !== newSettings.enableStuckTransfer) {
+      changes.push(`enableStuckTransfer: ${old.enableStuckTransfer} -> ${newSettings.enableStuckTransfer}`);
+    }
+
+    const details = changes.length > 0 
+      ? `Notification parameters modified by ${currentUser.name} (${currentUser.role}). Changes: ${changes.join(', ')}. Old: ${JSON.stringify(old)}, New: ${JSON.stringify(newSettings)}`
+      : `Notification parameters reaffirmed by ${currentUser.name} (${currentUser.role}). No value changes.`;
+
+    addAuditLog('Update Notification Settings', 'SystemSettings', 'notification_settings', details);
+  };
+
+  const handleNotificationActionNavigate = (action: AppNotification['action']) => {
+    if (action.actionType === 'reorder_po') {
+      setActiveTab('purchase');
+      if (action.metadata?.itemId) {
+        setPreloadedPOItem({
+          itemId: action.metadata.itemId,
+          quantity: action.metadata.recommendedQty || 100
+        });
+      }
+    } else if (action.actionType === 'item_details' || action.actionType === 'stock_adjustment') {
+      setActiveTab(action.targetTab || 'inventory_mgmt');
+      if (action.searchQuery) {
+        setSearchQuery(action.searchQuery);
+      }
+    } else if (action.actionType === 'batch_view') {
+      setActiveTab('batches');
+      if (action.searchQuery) {
+        setSearchQuery(action.searchQuery);
+      }
+    } else if (action.actionType === 'invoice_view') {
+      setActiveTab('billing');
+      if (action.searchQuery) {
+        setSearchQuery(action.searchQuery);
+      }
+    } else if (action.actionType === 'transfer_view') {
+      setActiveTab('branch_sync');
+      if (action.searchQuery) {
+        setSearchQuery(action.searchQuery);
+      }
+    } else {
+      setActiveTab(action.targetTab || 'overview');
+    }
+  };
 
   const checkPermission = (perm: keyof Staff['permissions']): boolean => {
     return currentUser.permissions[perm];
@@ -789,15 +901,15 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans">
       {/* Sidebar Navigation */}
-      <div className="fixed left-0 top-0 h-full w-64 bg-white border-r border-gray-200 p-6 z-10 hidden lg:block">
-        <div className="flex items-center gap-3 mb-10">
+      <div className="fixed left-0 top-0 h-full w-64 bg-white border-r border-gray-200 flex flex-col z-10 hidden lg:flex">
+        <div className="flex items-center gap-3 p-6 pb-4 shrink-0">
           <div className="bg-indigo-600 p-2 rounded-lg">
             <Package className="text-white w-6 h-6" />
           </div>
           <h1 className="font-bold text-xl tracking-tight">InvPredict</h1>
         </div>
         
-        <nav className="space-y-1 overflow-y-auto max-h-[calc(100vh-200px)] pr-2">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-6 py-2">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 px-4">Main</p>
           <NavButton 
             active={activeTab === 'overview'} 
@@ -911,7 +1023,7 @@ export default function App() {
           />
         </nav>
 
-        <div className="absolute bottom-10 left-6 right-6">
+        <div className="p-6 pt-3 shrink-0 border-t border-gray-100 bg-white">
           <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
             <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-1">{t.systemStatus}</p>
             <div className="flex items-center gap-2">
@@ -1012,11 +1124,27 @@ export default function App() {
               </button>
             </div>
 
+            {/* Notification Center */}
+            <NotificationCenterPanel
+              notifications={notifications}
+              userState={currentUserNotifState}
+              onUpdateUserState={handleUpdateUserState}
+              currentUser={currentUser}
+              language={language}
+              onOpenSettings={() => setIsNotificationSettingsOpen(true)}
+              onActionNavigate={handleNotificationActionNavigate}
+            />
+
             <ScannerDialog inventory={inventory} onScan={(item) => {
               setActiveTab('inventory_mgmt');
               setSearchQuery(item.sku);
             }} />
-            <button className="p-3 bg-white border border-gray-200 rounded-2xl shadow-sm text-gray-500 hover:text-indigo-600 transition-colors">
+            <button 
+              onClick={() => setIsNotificationSettingsOpen(true)}
+              className="p-3 bg-white border border-gray-200 rounded-2xl shadow-sm text-gray-500 hover:text-indigo-600 transition-colors cursor-pointer"
+              title={t.notificationSettings}
+              aria-label={t.notificationSettings}
+            >
               <Settings2 size={20} />
             </button>
           </div>
@@ -1195,6 +1323,7 @@ export default function App() {
                 onBulkImport={handleBulkImport}
                 onDeleteItem={handleDeleteItem}
                 language={language}
+                developerToolsEnabled={!!notificationSettings.developerToolsEnabled && currentUser.role === 'admin'}
               />
             )}
 
@@ -1290,6 +1419,8 @@ export default function App() {
                   addAuditLog('Add Supplier', 'Supplier', s.id, `Supplier ${s.name} added to database`);
                 }}
                 language={language}
+                preloadedPOItem={preloadedPOItem}
+                onClearPreloadedPO={() => setPreloadedPOItem(null)}
               />
             )}
 
@@ -1663,6 +1794,16 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
       </main>
+
+      {/* Global Notification Settings Modal */}
+      <NotificationSettingsModal
+        isOpen={isNotificationSettingsOpen}
+        onClose={() => setIsNotificationSettingsOpen(false)}
+        settings={notificationSettings}
+        onSave={handleSaveNotificationSettings}
+        currentUser={currentUser}
+        language={language}
+      />
     </div>
   );
 }
@@ -1837,7 +1978,8 @@ function InventoryMgmtPage({
   onAddItem, 
   onBulkImport,
   onDeleteItem, 
-  language = 'en' 
+  language = 'en',
+  developerToolsEnabled = false
 }: { 
   inventory: InventoryItem[], 
   categories: Category[],
@@ -1849,7 +1991,8 @@ function InventoryMgmtPage({
   onAddItem: (item: InventoryItem) => void,
   onBulkImport: (payload: any) => void,
   onDeleteItem: (id: string) => void,
-  language?: Language
+  language?: Language,
+  developerToolsEnabled?: boolean
 }) {
   const [importOpen, setImportOpen] = useState(false);
   const canImport = currentUser.role === 'admin' || currentUser.role === 'inventory_manager';
@@ -1904,6 +2047,7 @@ function InventoryMgmtPage({
             warehouses={warehouses}
             currentUser={currentUser}
             language={language}
+            developerToolsEnabled={developerToolsEnabled}
             onImportComplete={onBulkImport}
           />
         </div>
@@ -2827,18 +2971,46 @@ function BatchPage({
   );
 }
 
-function PurchasePage({ purchaseOrders, suppliers, inventory, onAddPO, onAddSupplier, language = 'en' }: {
+function PurchasePage({ 
+  purchaseOrders, 
+  suppliers, 
+  inventory, 
+  onAddPO, 
+  onAddSupplier, 
+  language = 'en',
+  preloadedPOItem,
+  onClearPreloadedPO
+}: {
   purchaseOrders: PurchaseOrder[],
   suppliers: Supplier[],
   inventory: InventoryItem[],
   onAddPO: (po: PurchaseOrder) => void,
   onAddSupplier: (s: Supplier) => void,
-  language?: Language
+  language?: Language,
+  preloadedPOItem?: { itemId: string; quantity: number } | null,
+  onClearPreloadedPO?: () => void
 }) {
   const [openPO, setOpenPO] = useState(false);
   const [openSup, setOpenSup] = useState(false);
   const [poData, setPoData] = useState({ supplierId: '', itemId: '', quantity: '', rate: '' });
   const [supData, setSupData] = useState({ name: '', contact: '', email: '', category: '' });
+
+  useEffect(() => {
+    if (preloadedPOItem?.itemId) {
+      const targetItem = inventory.find(i => i.id === preloadedPOItem.itemId);
+      const supplier = suppliers.find(s => s.category === targetItem?.categoryId) || suppliers[0];
+      setPoData({
+        supplierId: supplier ? supplier.id : '',
+        itemId: preloadedPOItem.itemId,
+        quantity: String(preloadedPOItem.quantity || 100),
+        rate: '50'
+      });
+      setOpenPO(true);
+      if (onClearPreloadedPO) {
+        onClearPreloadedPO();
+      }
+    }
+  }, [preloadedPOItem, inventory, suppliers, onClearPreloadedPO]);
 
   const handlePOSubmit = (e: React.FormEvent) => {
     e.preventDefault();

@@ -5,7 +5,10 @@ import {
   generateEan13Barcode,
   autoMatchColumns,
   sanitizeCellValue,
-  processImportInChunks
+  processImportInChunks,
+  generateCsvTemplate,
+  generateSampleErrorsCsv,
+  SAMPLE_ERRORS_RAW_DATA
 } from './bulkImport';
 import { InventoryItem, Category, Warehouse } from '../types';
 
@@ -26,7 +29,8 @@ function runTests() {
 
   const mockCategories: Category[] = [
     { id: 'cat-1', name: 'Fabrics' },
-    { id: 'cat-2', name: 'Threads' }
+    { id: 'cat-2', name: 'Threads' },
+    { id: 'cat-3', name: 'Accessories' }
   ];
 
   const mockWarehouses: Warehouse[] = [
@@ -261,6 +265,80 @@ function runTests() {
     ).then((finalResults) => {
       assert(finalResults.length === 2000, 'All 2,000 items processed through chunks');
       assert(progressUpdates.length > 0 && progressUpdates[progressUpdates.length - 1] === 100, 'Progress reached 100%');
+
+      // Test 9: Sample file with deliberate errors & automatic barcode generation
+      console.log('\nTest 9: Sample file with deliberate errors and barcode generation');
+      {
+        const sampleCsv = generateSampleErrorsCsv();
+        const lines = sampleCsv.split('\r\n');
+        assert(lines.length >= 13, 'Sample CSV has header + 12 data rows');
+        
+        const templateHeaders = generateCsvTemplate().split('\r\n')[0].split(',');
+        const sampleHeaders = lines[0].split(',');
+        assert(sampleHeaders.length === templateHeaders.length + 1, 'Sample CSV has 1 additional column (Expected Result)');
+        assert(sampleHeaders[sampleHeaders.length - 1].replace(/^"|"$/g, '') === 'Expected Result', 'Last column is "Expected Result"');
+
+        // All sample rows must have empty Barcode
+        const allEmptyBarcodes = SAMPLE_ERRORS_RAW_DATA.every(r => r['Barcode'] === '');
+        assert(allEmptyBarcodes, 'All sample error rows have strictly empty Barcode');
+
+        // Verify column mapping ignores "Expected Result"
+        const mappingWithExtraCol = autoMatchColumns(sampleHeaders.map(h => h.replace(/^"|"$/g, '')));
+        assert(!('Expected Result' in mappingWithExtraCol) && !Object.values(mappingWithExtraCol).includes('Expected Result'), 'autoMatchColumns does not map Expected Result to any inventory target field');
+
+        // Validate sample rows with auto-create missing categories/warehouses turned OFF and reject policy
+        const sampleValidation = validateBulkImportRows(SAMPLE_ERRORS_RAW_DATA, mappingWithExtraCol, {
+          existingInventory: mockInventory,
+          existingCategories: mockCategories,
+          existingWarehouses: mockWarehouses,
+          createMissingCategoriesWarehouses: false,
+          duplicatePolicy: 'reject'
+        });
+
+        assert(sampleValidation.length === SAMPLE_ERRORS_RAW_DATA.length, 'All sample rows processed through validation');
+
+        // Check that EVERY row received an automatically generated 13-digit EAN barcode
+        const allReceivedValidEan = sampleValidation.every(r => {
+          const b = r.data.barcode;
+          return b && b.length === 13 && /^\d{13}$/.test(b) && validateEan13CheckDigit(b) && !/^(\d)\1{12}$/.test(b);
+        });
+        assert(allReceivedValidEan, 'Every row received a valid 13-digit EAN-13 barcode not consisting of repeated digits');
+
+        // Check specific rows
+        const valid1 = sampleValidation.find(r => r.data.sku === 'TEST-VALID-001');
+        assert(valid1?.isValid === true, 'TEST-VALID-001 is valid');
+
+        const barcodeRow = sampleValidation.find(r => r.data.sku === 'TEST-BARCODE-002');
+        assert(barcodeRow?.isValid === false && barcodeRow.errors.includes('Unit of measure is required'), 'TEST-BARCODE-002 demonstrates error without invalid barcode');
+
+        const lengthRow = sampleValidation.find(r => r.data.sku === 'TEST-LENGTH-003');
+        assert(lengthRow?.isValid === false && lengthRow.errors.some(e => e.includes('Lead Time cannot be negative')), 'TEST-LENGTH-003 demonstrates error without invalid length');
+
+        const noBarcodeRow = sampleValidation.find(r => r.data.sku === 'TEST-NOBARCODE-004');
+        assert(noBarcodeRow?.isValid === true, 'TEST-NOBARCODE-004 is valid with auto-generated barcode');
+
+        const missingRow = sampleValidation.find(r => r.data.sku === 'TEST-MISSING-005');
+        assert(missingRow?.isValid === false && missingRow.errors.includes('Item Name is required'), 'TEST-MISSING-005 fails on missing Item Name');
+
+        const dupRows = sampleValidation.filter(r => r.data.sku === 'TEST-DUP-006');
+        assert(dupRows[0]?.isValid === true && dupRows[1]?.isValid === false && dupRows[1]?.isDuplicateInFile, 'TEST-DUP-006 second row flagged as duplicate SKU in file');
+
+        const negRow = sampleValidation.find(r => r.data.sku === 'TEST-NEG-007');
+        assert(negRow?.isValid === false && negRow.errors.some(e => e.includes('Current Stock cannot be negative (-5)')), 'TEST-NEG-007 fails on negative Current Stock (-5)');
+
+        const textRow = sampleValidation.find(r => r.data.sku === 'TEST-TEXT-008');
+        assert(textRow?.isValid === false && textRow.errors.includes('Unit Cost must be a valid number'), 'TEST-TEXT-008 fails on non-numeric Unit Cost');
+
+        const catRow = sampleValidation.find(r => r.data.sku === 'TEST-CAT-009');
+        assert(catRow?.isValid === false && catRow.errors.some(e => e.includes("Category 'Spaceships' does not exist")), 'TEST-CAT-009 fails on unknown category Spaceships');
+
+        const whRow = sampleValidation.find(r => r.data.sku === 'TEST-WH-010');
+        assert(whRow?.isValid === false && whRow.errors.some(e => e.includes("Warehouse 'Nowhere Depot' does not exist")), 'TEST-WH-010 fails on unknown warehouse Nowhere Depot');
+
+        const formulaRow = sampleValidation.find(r => r.data.sku === 'TEST-FORMULA-011');
+        assert(formulaRow?.isValid === false && formulaRow.errors.some(e => e.includes('contains forbidden formula characters')), 'TEST-FORMULA-011 fails on formula injection (=1+1)');
+      }
+
       console.log(`\n🎉 Results: ${passedCount} passed, ${failedCount} failed.`);
       if (failedCount > 0) process.exit(1);
     });

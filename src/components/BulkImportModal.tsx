@@ -55,6 +55,7 @@ import {
   autoMatchColumns, 
   validateBulkImportRows, 
   generateCsvTemplate, 
+  generateSampleErrorsCsv,
   generateErrorsCsv,
   processImportInChunks
 } from '../utils/bulkImport';
@@ -69,6 +70,7 @@ interface BulkImportModalProps {
   warehouses: Warehouse[];
   currentUser: Staff;
   language?: Language;
+  developerToolsEnabled?: boolean;
   onImportComplete: (payload: {
     itemsToCreate: InventoryItem[];
     itemsToUpdate: InventoryItem[];
@@ -94,6 +96,7 @@ export default function BulkImportModal({
   warehouses,
   currentUser,
   language = 'en',
+  developerToolsEnabled = false,
   onImportComplete
 }: BulkImportModalProps) {
   const t = LOCALES[language];
@@ -274,6 +277,19 @@ export default function BulkImportModal({
     const link = document.createElement('a');
     link.setAttribute('href', url);
     link.setAttribute('download', 'inventory_import_template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Download sample CSV with deliberate errors for testing
+  const handleDownloadSampleErrors = () => {
+    const csv = generateSampleErrorsCsv();
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'inventory_sample_errors.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -650,15 +666,27 @@ export default function BulkImportModal({
                       </p>
                     </div>
                   </div>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    onClick={handleDownloadTemplate}
-                    className="rounded-xl border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-bold shrink-0"
-                  >
-                    <Download className="mr-1.5 h-3.5 w-3.5" />
-                    {t.downloadTemplate}
-                  </Button>
+                  <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2.5 shrink-0">
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      onClick={handleDownloadTemplate}
+                      className="rounded-xl border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-bold shrink-0"
+                    >
+                      <Download className="mr-1.5 h-3.5 w-3.5" />
+                      {t.downloadTemplate}
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleDownloadSampleErrors}
+                      className="rounded-xl border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 font-bold shrink-0 text-xs shadow-2xs"
+                    >
+                      <Download className="mr-1.5 h-3.5 w-3.5 text-amber-600" />
+                      Download sample file with errors
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Supported Columns Guide */}

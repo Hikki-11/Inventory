@@ -75,16 +75,22 @@ export function calculateEan13CheckDigit(twelveDigits: string): number {
 }
 
 /**
- * Validates whether a barcode is a valid 13-digit EAN-13 code with proper check digit.
+ * Validates whether a barcode is a valid 13-digit numeric code.
+ * Requirements:
+ * - Exactly 13 numeric digits (0-9).
+ * - EAN-13 check digit is NOT validated.
+ * - Barcodes consisting entirely of the same repeated digit (e.g., '1111111111111' or '0000000000000') are rejected.
+ * - Non-numeric characters or fewer/more than 13 digits are rejected.
  */
 export function validateEan13CheckDigit(code: string): boolean {
   if (!code || typeof code !== 'string') return false;
   const cleaned = code.trim();
   if (!/^\d{13}$/.test(cleaned)) return false;
-  const body = cleaned.substring(0, 12);
-  const checkDigit = parseInt(cleaned[12], 10);
-  return calculateEan13CheckDigit(body) === checkDigit;
+  if (/^(\d)\1{12}$/.test(cleaned)) return false;
+  return true;
 }
+
+export const validateBarcode = validateEan13CheckDigit;
 
 /**
  * Generates a valid random 13-digit EAN barcode with a standard GS1 country prefix (e.g. 890 for India).
@@ -97,7 +103,14 @@ export function generateEan13Barcode(prefix: string = '890'): string {
   }
   body = body.substring(0, 12);
   const checkDigit = calculateEan13CheckDigit(body);
-  return `${body}${checkDigit}`;
+  const barcode = `${body}${checkDigit}`;
+
+  // Ensure barcode contains exactly 13 numeric digits and does not consist entirely of the same repeated digit
+  if (/^(\d)\1{12}$/.test(barcode)) {
+    return generateEan13Barcode(prefix);
+  }
+
+  return barcode;
 }
 
 /**
@@ -346,7 +359,14 @@ export function validateBulkImportRows(
       }
     } else {
       // Auto-generate barcode when missing
-      finalBarcode = generateEan13Barcode();
+      let generated = generateEan13Barcode();
+      let attempts = 0;
+      while ((fileBarcodes.has(generated) || existingBarcodeMap.has(generated)) && attempts < 50) {
+        generated = generateEan13Barcode();
+        attempts++;
+      }
+      finalBarcode = generated;
+      fileBarcodes.add(finalBarcode);
       warnings.push(`No barcode provided; generated EAN-13: ${finalBarcode}`);
     }
 
@@ -465,6 +485,253 @@ export function generateCsvTemplate(): string {
   ].join('\r\n');
 
   return csvContent;
+}
+
+/**
+ * Sample rows demonstrating all error and edge cases for testing and verification.
+ * Note: Barcode field is strictly left empty across all rows to exercise the system's
+ * automatic barcode-generation logic without hardcoded values.
+ */
+export const SAMPLE_ERRORS_RAW_DATA: RawRowData[] = [
+  {
+    'SKU': 'TEST-VALID-001',
+    'Item Name': 'Valid Cotton Fabric',
+    'Barcode': '',
+    'Description': 'Fully valid cotton fabric roll',
+    'Category': 'Fabrics',
+    'Unit': 'meters',
+    'Unit Cost': '100',
+    'Selling Price': '150',
+    'Current Stock': '50',
+    'Minimum Threshold': '10',
+    'Safety Stock': '5',
+    'Daily Usage': '2',
+    'Lead Time (days)': '5',
+    'Warehouse': 'Main Warehouse',
+    'Expected Result': 'Valid'
+  },
+  {
+    'SKU': 'TEST-BARCODE-002',
+    'Item Name': 'Polyester Thread Spool',
+    'Barcode': '',
+    'Description': 'Sample thread with missing unit',
+    'Category': 'Threads',
+    'Unit': '',
+    'Unit Cost': '20',
+    'Selling Price': '35',
+    'Current Stock': '100',
+    'Minimum Threshold': '20',
+    'Safety Stock': '10',
+    'Daily Usage': '5',
+    'Lead Time (days)': '3',
+    'Warehouse': 'Main Warehouse',
+    'Expected Result': 'Unit of measure is required'
+  },
+  {
+    'SKU': 'TEST-LENGTH-003',
+    'Item Name': 'Brass Metal Zipper',
+    'Barcode': '',
+    'Description': 'Sample zipper with negative lead time',
+    'Category': 'Accessories',
+    'Unit': 'pcs',
+    'Unit Cost': '15',
+    'Selling Price': '25',
+    'Current Stock': '200',
+    'Minimum Threshold': '50',
+    'Safety Stock': '20',
+    'Daily Usage': '10',
+    'Lead Time (days)': '-3',
+    'Warehouse': 'Secondary Depot',
+    'Expected Result': 'Lead Time cannot be negative (-3)'
+  },
+  {
+    'SKU': 'TEST-NOBARCODE-004',
+    'Item Name': 'Silk Ribbons Assorted',
+    'Barcode': '',
+    'Description': 'Valid ribbons receiving auto barcode',
+    'Category': 'Accessories',
+    'Unit': 'rolls',
+    'Unit Cost': '45',
+    'Selling Price': '70',
+    'Current Stock': '80',
+    'Minimum Threshold': '15',
+    'Safety Stock': '10',
+    'Daily Usage': '3',
+    'Lead Time (days)': '4',
+    'Warehouse': 'Main Warehouse',
+    'Expected Result': 'Valid'
+  },
+  {
+    'SKU': 'TEST-MISSING-005',
+    'Item Name': '',
+    'Barcode': '',
+    'Description': 'Item with missing item name',
+    'Category': 'Fabrics',
+    'Unit': 'meters',
+    'Unit Cost': '60',
+    'Selling Price': '90',
+    'Current Stock': '100',
+    'Minimum Threshold': '20',
+    'Safety Stock': '10',
+    'Daily Usage': '4',
+    'Lead Time (days)': '5',
+    'Warehouse': 'Main Warehouse',
+    'Expected Result': 'Item Name is required'
+  },
+  {
+    'SKU': 'TEST-DUP-006',
+    'Item Name': 'Cotton Canvas First Entry',
+    'Barcode': '',
+    'Description': 'First entry for duplicate check',
+    'Category': 'Fabrics',
+    'Unit': 'meters',
+    'Unit Cost': '80',
+    'Selling Price': '120',
+    'Current Stock': '60',
+    'Minimum Threshold': '15',
+    'Safety Stock': '10',
+    'Daily Usage': '2',
+    'Lead Time (days)': '6',
+    'Warehouse': 'Main Warehouse',
+    'Expected Result': 'Valid'
+  },
+  {
+    'SKU': 'TEST-DUP-006',
+    'Item Name': 'Cotton Canvas Duplicate Entry',
+    'Barcode': '',
+    'Description': 'Second entry with duplicate SKU in file',
+    'Category': 'Fabrics',
+    'Unit': 'meters',
+    'Unit Cost': '80',
+    'Selling Price': '120',
+    'Current Stock': '60',
+    'Minimum Threshold': '15',
+    'Safety Stock': '10',
+    'Daily Usage': '2',
+    'Lead Time (days)': '6',
+    'Warehouse': 'Main Warehouse',
+    'Expected Result': "Duplicate SKU 'TEST-DUP-006' in file"
+  },
+  {
+    'SKU': 'TEST-NEG-007',
+    'Item Name': 'Linen Fabric Roll',
+    'Barcode': '',
+    'Description': 'Negative current stock test',
+    'Category': 'Fabrics',
+    'Unit': 'meters',
+    'Unit Cost': '120',
+    'Selling Price': '180',
+    'Current Stock': '-5',
+    'Minimum Threshold': '10',
+    'Safety Stock': '5',
+    'Daily Usage': '1',
+    'Lead Time (days)': '7',
+    'Warehouse': 'Secondary Depot',
+    'Expected Result': 'Current Stock cannot be negative (-5)'
+  },
+  {
+    'SKU': 'TEST-TEXT-008',
+    'Item Name': 'Elastic Band 1 inch',
+    'Barcode': '',
+    'Description': 'Non-numeric unit cost test',
+    'Category': 'Accessories',
+    'Unit': 'meters',
+    'Unit Cost': 'abc',
+    'Selling Price': '25',
+    'Current Stock': '150',
+    'Minimum Threshold': '30',
+    'Safety Stock': '20',
+    'Daily Usage': '5',
+    'Lead Time (days)': '4',
+    'Warehouse': 'Main Warehouse',
+    'Expected Result': 'Unit Cost must be a valid number'
+  },
+  {
+    'SKU': 'TEST-CAT-009',
+    'Item Name': 'Titanium Alloy Weave',
+    'Barcode': '',
+    'Description': 'Unknown category test',
+    'Category': 'Spaceships',
+    'Unit': 'rolls',
+    'Unit Cost': '500',
+    'Selling Price': '800',
+    'Current Stock': '10',
+    'Minimum Threshold': '2',
+    'Safety Stock': '1',
+    'Daily Usage': '1',
+    'Lead Time (days)': '14',
+    'Warehouse': 'Main Warehouse',
+    'Expected Result': "Category 'Spaceships' does not exist (enable 'Create missing' to auto-add)"
+  },
+  {
+    'SKU': 'TEST-WH-010',
+    'Item Name': 'Rayon Viscose Blend',
+    'Barcode': '',
+    'Description': 'Unknown warehouse test',
+    'Category': 'Fabrics',
+    'Unit': 'meters',
+    'Unit Cost': '75',
+    'Selling Price': '110',
+    'Current Stock': '40',
+    'Minimum Threshold': '10',
+    'Safety Stock': '5',
+    'Daily Usage': '2',
+    'Lead Time (days)': '5',
+    'Warehouse': 'Nowhere Depot',
+    'Expected Result': "Warehouse 'Nowhere Depot' does not exist (enable 'Create missing' to auto-add)"
+  },
+  {
+    'SKU': 'TEST-FORMULA-011',
+    'Item Name': '=1+1',
+    'Barcode': '',
+    'Description': 'Formula injection test',
+    'Category': 'Fabrics',
+    'Unit': 'meters',
+    'Unit Cost': '50',
+    'Selling Price': '80',
+    'Current Stock': '20',
+    'Minimum Threshold': '5',
+    'Safety Stock': '2',
+    'Daily Usage': '1',
+    'Lead Time (days)': '3',
+    'Warehouse': 'Main Warehouse',
+    'Expected Result': "Cell 'Item Name' contains forbidden formula characters (=, +, -, @)"
+  }
+];
+
+/**
+ * Generate sample CSV string with deliberate errors and an Expected Result column.
+ */
+export function generateSampleErrorsCsv(): string {
+  const headers = [
+    'SKU',
+    'Item Name',
+    'Barcode',
+    'Description',
+    'Category',
+    'Unit',
+    'Unit Cost',
+    'Selling Price',
+    'Current Stock',
+    'Minimum Threshold',
+    'Safety Stock',
+    'Daily Usage',
+    'Lead Time (days)',
+    'Warehouse',
+    'Expected Result'
+  ];
+
+  const lines = [
+    headers.join(','),
+    ...SAMPLE_ERRORS_RAW_DATA.map(row => 
+      headers.map(h => {
+        const val = row[h] !== undefined ? String(row[h]) : '';
+        return `"${val.replace(/"/g, '""')}"`;
+      }).join(',')
+    )
+  ];
+
+  return lines.join('\r\n');
 }
 
 /**

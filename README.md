@@ -75,3 +75,42 @@ In this application, **an item's stock is the sum of its batches**. When batches
 1. The parent item's `currentStock` is automatically raised by the imported batch quantity.
 2. The warehouse's allocation in `stockLevels` is raised by the batch quantity.
 3. If "Add quantity to existing batch" is selected, the existing batch quantity increases and the audit log records both the old and new quantities.
+
+---
+
+## In-App Notification Center
+
+The in-app Notification Center continuously monitors stock shortages, batch expirations, overdue invoices, and transit delays, warning the right staff at the right time without generating alert noise.
+
+### Notification Types
+1. **Low Stock**: Items at or below calculated reorder level (`(dailyConsumption * leadTime) + safetyStock`), or under 15 days of stock (Warning) / under 5 days of stock (Critical).
+2. **Out of Stock**: Items with 0 inventory on hand (Critical).
+3. **Expired Batch**: Batches past their expiry date (Critical).
+4. **Expiring Soon**: Batches expiring within 7 days (Critical) or within 30 days (Warning).
+5. **Overdue Invoices**: Sales invoices past their payment due date (Admin and Billing Clerk only).
+6. **Stuck in Transit**: Stock transfers remaining in 'transit' status beyond the configured threshold (default: 3 days).
+
+### Smart Alert Rules
+- **Deduplication**: Strictly one notification per entity and alert type.
+- **Auto-Removal**: Notifications automatically disappear when conditions resolve (e.g., stock replenished, batch sold or disposed, invoice paid).
+- **Open Purchase Order Suppression**: Low-stock items with open POs (ordered or pending) are suppressed from urgent warnings and rendered as lower-priority "Replenishment On Order" info notices.
+- **Escalation**: When an alert escalates from Warning to Critical (e.g. stock drops to zero or expiry enters the critical 7-day band), snooze is broken and the notification is re-marked as unread and moved to the top.
+- **Per-User State**: Read, dismissed, and snoozed states are persisted per staff member and not shared across accounts.
+
+### Navigation Actions
+Each notification row provides a one-click deep link to:
+- **Pre-filled Reorder PO**: Automatically navigates to Purchase Orders and opens the PO modal pre-filled with the affected item and calculated reorder quantity.
+- **Batch Inspection**: Navigates to Batch Tracking pre-filtered by batch lot.
+- **Item Details & Corrections**: Navigates to Inventory Management pre-filtered by SKU.
+- **Invoice Review**: Navigates to Billing pre-filtered by invoice ID.
+- **Transfer Tracking**: Navigates to Logistics/Branch Sync pre-filtered by tracking number.
+
+### Settings & Governance (Admin & Inventory Manager)
+- Configurable thresholds: Near-Expiry Days (default: 30), Critical-Expiry Days (default: 7), Stuck Transfer Days (default: 3).
+- Individual channel toggles for all notification categories.
+- Strict input validation: integer values, logical bounds, and critical days strictly less than near-expiry days.
+- **Audit Trail**: Every modification writes a single audit entry capturing who, role, previous settings, and updated settings.
+
+### Scope Notice
+> **Future Scope**: External notification delivery channels (Email, SMS, WhatsApp, and Web Push notifications) are deferred to future scope as there is currently no backend server infrastructure.
+

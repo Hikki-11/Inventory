@@ -58,6 +58,7 @@ export interface NotificationSettings {
   enableExpiringSoon: boolean;
   enableOverdueInvoice: boolean;
   enableStuckTransfer: boolean;
+  developerToolsEnabled?: boolean; // Developer tools toggle (default: false)
 }
 
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
@@ -70,6 +71,7 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   enableExpiringSoon: true,
   enableOverdueInvoice: true,
   enableStuckTransfer: true,
+  developerToolsEnabled: false,
 };
 
 export interface UserNotificationState {

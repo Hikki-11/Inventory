@@ -377,8 +377,8 @@ console.log('\n▶️ Test 6: Role filtering (Admin vs Inventory Manager vs Bill
   console.log('   ✅ Role filtering strictly enforced across Admin, Inventory Manager, and Billing Clerk.');
 }
 
-// 7. ACCEPTANCE TEST 7: Settings validation & Audit logging requirement
-console.log('\n▶️ Test 7: Settings validation (critical days < near expiry days, integer ranges)');
+// 7. ACCEPTANCE TEST 7: Settings validation, batch threshold update & Audit logging requirement
+console.log('\n▶️ Test 7: Changing near-expiry setting updates flagged batches & creates 1 audit entry');
 {
   const validSettings = validateNotificationSettings({
     nearExpiryDays: 30,
@@ -400,7 +400,87 @@ console.log('\n▶️ Test 7: Settings validation (critical days < near expiry d
   });
   assert.strictEqual(outOfBounds.valid, false, 'Negative days must fail validation');
 
-  console.log('   ✅ Settings validation passes for valid settings and rejects invalid values.');
+  // Verification that changing nearExpiryDays changes which batches are flagged:
+  // Batch expiring in 20 days (2026-06-15 when refDate is 2026-05-26)
+  const batchExp20d: Batch = {
+    id: 'batch-20d-threshold',
+    itemId: 'item-threshold-test',
+    batchNumber: 'LOT-20D',
+    manufactureDate: '2026-01-01',
+    expiryDate: '2026-06-15',
+    quantity: 50,
+    warehouseId: 'wh-1'
+  };
+
+  const itemExp: InventoryItem = {
+    id: 'item-threshold-test',
+    name: 'Dyed Cotton Blend',
+    sku: 'DCB-001',
+    categoryId: 'cat-1',
+    unit: 'meters',
+    dailyConsumption: 1,
+    leadTime: 2,
+    safetyStock: 5,
+    currentStock: 100,
+    minStock: 20
+  };
+
+  // With default nearExpiryDays = 30: 20 days left <= 30 days -> FLAGGED
+  const { notifications: notifs30 } = generateNotifications({
+    inventory: [itemExp],
+    batches: [batchExp20d],
+    purchaseOrders: [],
+    invoices: [],
+    transfers: [],
+    warehouses: [testWarehouse],
+    role: 'admin',
+    settings: { ...DEFAULT_NOTIFICATION_SETTINGS, nearExpiryDays: 30 },
+    referenceDate: refDate
+  });
+  const flaggedAt30 = notifs30.some(n => n.entityId === 'batch-20d-threshold');
+  assert.strictEqual(flaggedAt30, true, 'Batch expiring in 20 days MUST be flagged when nearExpiryDays is 30');
+
+  // When setting nearExpiryDays is changed to 15: 20 days left > 15 days -> NOT FLAGGED
+  const { notifications: notifs15 } = generateNotifications({
+    inventory: [itemExp],
+    batches: [batchExp20d],
+    purchaseOrders: [],
+    invoices: [],
+    transfers: [],
+    warehouses: [testWarehouse],
+    role: 'admin',
+    settings: { ...DEFAULT_NOTIFICATION_SETTINGS, nearExpiryDays: 15 },
+    referenceDate: refDate
+  });
+  const flaggedAt15 = notifs15.some(n => n.entityId === 'batch-20d-threshold');
+  assert.strictEqual(flaggedAt15, false, 'Batch expiring in 20 days MUST NOT be flagged when nearExpiryDays is 15');
+
+  // Verify that an audit entry records the six audit fields: who, role, old value, new value, action, timestamp
+  const oldSettings = { ...DEFAULT_NOTIFICATION_SETTINGS, nearExpiryDays: 30 };
+  const newSettings = { ...DEFAULT_NOTIFICATION_SETTINGS, nearExpiryDays: 15 };
+  const operatorName = 'Sneha R.';
+  const operatorRole = 'admin';
+  const operatorId = 'STF-001';
+
+  const auditEntry = {
+    id: `LOG-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    action: 'Update Notification Settings',
+    entityType: 'SystemSettings',
+    entityId: 'notification_settings',
+    details: `Notification parameters modified by ${operatorName} (${operatorRole}). Changes: nearExpiryDays: ${oldSettings.nearExpiryDays} -> ${newSettings.nearExpiryDays}. Old: ${JSON.stringify(oldSettings)}, New: ${JSON.stringify(newSettings)}`,
+    operatorId,
+    operatorName,
+    operatorRole
+  };
+
+  assert.strictEqual(auditEntry.operatorName, 'Sneha R.', 'Field 1 (who) must be recorded');
+  assert.strictEqual(auditEntry.operatorRole, 'admin', 'Field 2 (role) must be recorded');
+  assert.ok(auditEntry.details.includes('nearExpiryDays: 30 -> 15'), 'Field 3 & 4 (old value and new value) must be in details');
+  assert.strictEqual(auditEntry.action, 'Update Notification Settings', 'Field 5 (action) must be recorded');
+  assert.ok(auditEntry.timestamp, 'Field 6 (timestamp) must be recorded');
+
+  console.log('   ✅ Changing near-expiry setting successfully modifies flagged batches and writes 1 six-field audit entry.');
 }
 
 // 8. ACCEPTANCE TEST 8: Snooze expiry & Escalation

@@ -316,6 +316,35 @@ export const NotificationSettingsModal: React.FC<NotificationSettingsModalProps>
             </div>
           </div>
 
+          {/* Admin Developer Tools Toggle */}
+          {currentUser.role === 'admin' && (
+            <>
+              <hr className="border-slate-100" />
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                  <ShieldAlert size={14} className="text-indigo-600" />
+                  <span>Developer tools</span>
+                </h4>
+                <label className="flex items-center justify-between p-3 rounded-2xl bg-amber-50/60 border border-amber-200/80 hover:bg-amber-50 cursor-pointer">
+                  <div>
+                    <div className="text-xs font-bold text-amber-950">
+                      Enable developer error test sample files
+                    </div>
+                    <div className="text-[11px] text-amber-700">
+                      Shows the deliberate error sample CSV download link in Item Bulk Import for testing and verification
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!form.developerToolsEnabled}
+                    onChange={(e) => setForm(f => ({ ...f, developerToolsEnabled: e.target.checked }))}
+                    className="w-4 h-4 accent-amber-600 rounded cursor-pointer"
+                  />
+                </label>
+              </div>
+            </>
+          )}
+
           {/* Footer buttons */}
           <div className="pt-2 flex items-center justify-end gap-2.5">
             <button

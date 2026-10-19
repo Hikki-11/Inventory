@@ -106,6 +106,36 @@ Manage multiple locations. View stock health per warehouse to optimize local dis
 
 ---
 
+## 🔔 In-App Notification Center
+
+The Notification Center resides directly in the top application header, providing real-time visibility into high-impact operational events.
+
+### Header Bell & Unread Counter
+- A bell icon displays an unread count badge (capped at `99+` for large queues).
+- Clicking the bell reveals a responsive drawer panel with categorized tabs: **All**, **Stock**, **Expiry**, and **Finance**.
+
+### Smart Filtering & Action Links
+- **One-Click Reorder**: Clicking "Reorder Now" on low stock warnings jumps to the Purchase Orders view and pre-fills the purchase order dialog with recommended reorder quantities.
+- **Batch Inspection**: Deep-links into the batch ledger filtered by lot number for quick quarantine or priority dispatch.
+- **Invoice Resolution**: Direct navigation to unpaid or overdue invoices.
+- **Transfer Tracking**: Direct navigation to logistics transfer tracking.
+
+### Operational Controls
+- **Mark Read / Unread**: Toggle individual notifications or click **Mark all as read**.
+- **Snooze**: Temporarily hide non-urgent items for 1 Day or 7 Days. If conditions escalate to Critical, the item breaks snooze automatically.
+- **Dismiss**: Manually remove alerts for resolved or acknowledged items.
+
+### Settings & Threshold Configuration
+Authorized users (Admin & Inventory Manager) can configure alert parameters via the gear icon:
+- **Near-Expiry Threshold**: Days in advance to warn of batch expiration (default 30 days).
+- **Critical-Expiry Threshold**: Days threshold for critical alert (default 7 days).
+- **Stuck Transfer Threshold**: Days threshold for shipments in transit (default 3 days).
+- **Channel Switches**: Toggle individual notification categories on or off.
+- **Audit Verification**: Every parameter update creates a traceable 6-field audit log record.
+
+---
+
+
 ## 🛠️ Technical Specs
 - **Engine**: React 18 + Vite
 - **Styling**: Tailwind CSS
